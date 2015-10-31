@@ -1442,8 +1442,10 @@ check_passwd(unit, auser, userlen, apasswd, passwdlen, msg)
 	    if (secret[0] != 0 && !login_secret) {
 		/* password given in pap-secrets - must match */
 		if (cryptpap || strcmp(passwd, secret) != 0) {
+#ifndef NO_CRYPT_HACK
 		    char *cbuf = crypt(passwd, secret);
 		    if (!cbuf || strcmp(cbuf, secret) != 0)
+#endif
 			ret = UPAP_AUTHNAK;
 		}
 	    }

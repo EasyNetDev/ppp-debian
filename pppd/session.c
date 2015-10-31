@@ -351,8 +351,10 @@ session_start(flags, user, passwd, ttyName, msg)
 	 */
         if (pw->pw_passwd == NULL || strlen(pw->pw_passwd) < 2)
             return SESSION_FAILED;
+#ifndef NO_CRYPT_HACK
 	cbuf = crypt(passwd, pw->pw_passwd);
 	if (!cbuf || strcmp(cbuf, pw->pw_passwd) != 0)
+#endif
             return SESSION_FAILED;
     }
 

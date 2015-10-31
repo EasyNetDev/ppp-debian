@@ -124,7 +124,7 @@
 static const char rcsid[] = RCSID;
 
 /* interface vars */
-char ifname[32];		/* Interface name */
+char ifname[MAXIFNAMELEN];	/* Interface name */
 int ifunit;			/* Interface unit number */
 
 struct channel *the_channel;
@@ -298,13 +298,6 @@ struct protent *protocols[] = {
     NULL
 };
 
-/*
- * If PPP_DRV_NAME is not defined, use the default "ppp" as the device name.
- */
-#if !defined(PPP_DRV_NAME)
-#define PPP_DRV_NAME	"ppp"
-#endif /* !defined(PPP_DRV_NAME) */
-
 int
 main(argc, argv)
     int argc;
@@ -315,6 +308,9 @@ main(argc, argv)
     struct passwd *pw;
     struct protent *protp;
     char numbuf[16];
+
+    strlcpy(path_ipup, _PATH_IPUP, sizeof(path_ipup));
+    strlcpy(path_ipdown, _PATH_IPDOWN, sizeof(path_ipdown));
 
     link_stats_valid = 0;
     new_phase(PHASE_INITIALIZE);
@@ -737,8 +733,31 @@ void
 set_ifunit(iskey)
     int iskey;
 {
-    info("Using interface %s%d", PPP_DRV_NAME, ifunit);
-    slprintf(ifname, sizeof(ifname), "%s%d", PPP_DRV_NAME, ifunit);
+    if (req_ifname[0] != '\0') {
+        char *ptr;
+        ptr = strchr(req_ifname, 'N');
+
+        if (ptr == NULL) {
+            slprintf(ifname, sizeof(ifname), "%s", req_ifname);
+            info("Using ifname as it is: '%s'", ifname);
+        } else {
+            int index=0;
+            char req_ifname_t[MAXIFNAMELEN];
+
+            index = (int)(ptr - req_ifname);
+            memset(req_ifname_t, 0, MAXIFNAMELEN); // force cleanup
+            strncpy(req_ifname_t, req_ifname, index);
+
+            // Copy the part of the req_ifname which doesn't contains "N"
+            strncpy(req_ifname_t, req_ifname, index);
+
+            slprintf(ifname, sizeof(ifname), "%s%d", req_ifname_t, ifunit);
+            info("Using ifname in format ifnameN. Set to new name: '%s'", ifname);
+        }
+    }
+    else
+	slprintf(ifname, sizeof(ifname), "%s%d", PPP_DRV_NAME, ifunit);
+    info("Using interface %s", ifname);
     script_setenv("IFNAME", ifname, iskey);
     if (iskey) {
 	create_pidfile(getpid());	/* write pid to file */
@@ -770,8 +789,7 @@ detach()
 	/* update pid files if they have been written already */
 	if (pidfilename[0])
 	    create_pidfile(pid);
-	if (linkpidfile[0])
-	    create_linkpidfile(pid);
+	create_linkpidfile(pid);
 	exit(0);		/* parent dies */
     }
     setsid();
@@ -1679,7 +1697,7 @@ device_script(program, in, out, dont_wait)
     if (log_to_fd >= 0)
 	errfd = log_to_fd;
     else
-	errfd = open(_PATH_CONNERRS, O_WRONLY | O_APPEND | O_CREAT, 0600);
+	errfd = open(_PATH_CONNERRS, O_WRONLY | O_APPEND | O_CREAT, 0644);
 
     ++conn_running;
     pid = safe_fork(in, out, errfd);

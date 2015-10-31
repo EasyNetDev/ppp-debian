@@ -12,20 +12,21 @@ CDEFS=	$(CDEF1) $(CDEF2) $(CDEF3) $(CDEF4)
 
 COPTS=	-O2 -g -pipe
 CFLAGS=	$(COPTS) $(CDEFS)
+LDFLAGS=$(LDOPTS)
 
 INSTALL= install
 
 all:	chat
 
 chat:	chat.o
-	$(CC) -o chat chat.o
+	$(CC) $(LDFLAGS) -o chat chat.o
 
 chat.o:	chat.c
 	$(CC) -c $(CFLAGS) -o chat.o chat.c
 
 install: chat
 	mkdir -p $(BINDIR) $(MANDIR)
-	$(INSTALL) -s -c chat $(BINDIR)
+	$(INSTALL) -c chat $(BINDIR)
 	$(INSTALL) -c -m 644 chat.8 $(MANDIR)
 
 clean:
