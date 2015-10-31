@@ -34,7 +34,7 @@ ppp-2.4.2-stripMSdomain
 setenv_call_file
 
 ipv6-accept-remote
-ppp-2.4.2-ifname.diff
+ppp-2.4.2-ifname-enhanced.patch
 ppp-2.4.4-strncatfix.patch
 
 # debian-specific
@@ -44,3 +44,4 @@ resolv.conf_no_log
 zzz_config
 secure-card-interpreter-fix
 rc_mksid-no-buffer-overflow
+ppp-2.4.6-radius-plugin-ifname-fix.patch

@@ -124,7 +124,7 @@
 static const char rcsid[] = RCSID;
 
 /* interface vars */
-char ifname[MAXIFNAMELEN];	/* Interface name */
+char ifname[32];		/* Interface name */
 int ifunit;			/* Interface unit number */
 
 struct channel *the_channel;
@@ -298,6 +298,13 @@ struct protent *protocols[] = {
     NULL
 };
 
+/*
+ * If PPP_DRV_NAME is not defined, use the default "ppp" as the device name.
+ */
+#if !defined(PPP_DRV_NAME)
+#define PPP_DRV_NAME	"ppp"
+#endif /* !defined(PPP_DRV_NAME) */
+
 int
 main(argc, argv)
     int argc;
@@ -308,9 +315,6 @@ main(argc, argv)
     struct passwd *pw;
     struct protent *protp;
     char numbuf[16];
-
-    strlcpy(path_ipup, _PATH_IPUP, sizeof(path_ipup));
-    strlcpy(path_ipdown, _PATH_IPDOWN, sizeof(path_ipdown));
 
     link_stats_valid = 0;
     new_phase(PHASE_INITIALIZE);
@@ -733,11 +737,8 @@ void
 set_ifunit(iskey)
     int iskey;
 {
-    if (req_ifname[0] != '\0')
-	slprintf(ifname, sizeof(ifname), "%s", req_ifname);
-    else
-	slprintf(ifname, sizeof(ifname), "%s%d", PPP_DRV_NAME, ifunit);
-    info("Using interface %s", ifname);
+    info("Using interface %s%d", PPP_DRV_NAME, ifunit);
+    slprintf(ifname, sizeof(ifname), "%s%d", PPP_DRV_NAME, ifunit);
     script_setenv("IFNAME", ifname, iskey);
     if (iskey) {
 	create_pidfile(getpid());	/* write pid to file */
@@ -769,7 +770,8 @@ detach()
 	/* update pid files if they have been written already */
 	if (pidfilename[0])
 	    create_pidfile(pid);
-	create_linkpidfile(pid);
+	if (linkpidfile[0])
+	    create_linkpidfile(pid);
 	exit(0);		/* parent dies */
     }
     setsid();
@@ -1677,7 +1679,7 @@ device_script(program, in, out, dont_wait)
     if (log_to_fd >= 0)
 	errfd = log_to_fd;
     else
-	errfd = open(_PATH_CONNERRS, O_WRONLY | O_APPEND | O_CREAT, 0644);
+	errfd = open(_PATH_CONNERRS, O_WRONLY | O_APPEND | O_CREAT, 0600);
 
     ++conn_running;
     pid = safe_fork(in, out, errfd);

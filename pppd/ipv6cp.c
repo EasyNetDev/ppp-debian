@@ -245,14 +245,14 @@ static option_t ipv6cp_option_list[] = {
 
     { "ipv6cp-accept-local", o_bool, &ipv6cp_allowoptions[0].accept_local,
       "Accept peer's interface identifier for us", 1 },
-    { "ipv6cp-accept-remote", o_bool, &ipv6cp_allowoptions[0].accept_remote,
-      "Accept peer's interface identifier for itself", 1 },
 
     { "ipv6cp-use-ipaddr", o_bool, &ipv6cp_allowoptions[0].use_ip,
       "Use (default) IPv4 address as interface identifier", 1 },
 
+#if defined(SOL2) || defined(__linux__)
     { "ipv6cp-use-persistent", o_bool, &ipv6cp_wantoptions[0].use_persistent,
       "Use uniquely-available persistent value for link local address", 1 },
+#endif /* defined(SOL2) */
 
     { "ipv6cp-restart", o_int, &ipv6cp_fsm[0].timeouttime,
       "Set timeout for IPv6CP", OPT_PRIO },
@@ -437,7 +437,6 @@ ipv6cp_init(unit)
     memset(ao, 0, sizeof(*ao));
 
     wo->accept_local = 1;
-    wo->accept_remote = 1;
     wo->neg_ifaceid = 1;
     ao->neg_ifaceid = 1;
 
@@ -963,7 +962,7 @@ ipv6cp_reqci(f, inp, len, reject_if_disagree)
 		orc = CONFREJ;		/* Reject CI */
 		break;
 	    }
-	    if (!eui64_iszero(wo->hisid) && !wo->accept_remote &&
+	    if (!eui64_iszero(wo->hisid) && 
 		!eui64_equals(ifaceid, wo->hisid) && 
 		eui64_iszero(go->hisid)) {
 		    
@@ -1089,6 +1088,7 @@ ipv6_check_options()
     if (!ipv6cp_protent.enabled_flag)
 	return;
 
+#if defined(SOL2) || defined(__linux__)
     /*
      * Persistent link-local id is only used when user has not explicitly
      * configure/hard-code the id
@@ -1108,6 +1108,7 @@ ipv6_check_options()
 	    wo->opt_local = 1;
 	}
     }
+#endif
 
     if (!wo->opt_local) {	/* init interface identifier */
 	if (wo->use_ip && eui64_iszero(wo->ourid)) {
@@ -1145,8 +1146,15 @@ ipv6_demand_conf(u)
 {
     ipv6cp_options *wo = &ipv6cp_wantoptions[u];
 
+#if defined(__linux__) || defined(SOL2) || (defined(SVR4) && (defined(SNI) || defined(__USLC__)))
+#if defined(SOL2)
     if (!sif6up(u))
 	return 0;
+#else
+    if (!sifup(u))
+	return 0;
+#endif /* defined(SOL2) */
+#endif    
     if (!sif6addr(u, wo->ourid, wo->hisid))
 	return 0;
 #if !defined(__linux__) && !(defined(SVR4) && (defined(SNI) || defined(__USLC__)))
@@ -1235,24 +1243,47 @@ ipv6cp_up(f)
 	    }
 
 	}
-	demand_rexmit(PPP_IPV6,0);
+	demand_rexmit(PPP_IPV6);
 	sifnpmode(f->unit, PPP_IPV6, NPMODE_PASS);
 
     } else {
-	/* bring the interface up for IPv6 */
-	if (!sif6up(f->unit)) {
-	    if (debug)
-		warn("sif6up failed (IPV6)");
-	    ipv6cp_close(f->unit, "Interface configuration failed");
-	    return;
-	}
-
+	/*
+	 * Set LL addresses
+	 */
+#if !defined(__linux__) && !defined(SOL2) && !(defined(SVR4) && (defined(SNI) || defined(__USLC__)))
 	if (!sif6addr(f->unit, go->ourid, ho->hisid)) {
 	    if (debug)
 		warn("sif6addr failed");
 	    ipv6cp_close(f->unit, "Interface configuration failed");
 	    return;
 	}
+#endif
+
+	/* bring the interface up for IPv6 */
+#if defined(SOL2)
+	if (!sif6up(f->unit)) {
+	    if (debug)
+		warn("sifup failed (IPV6)");
+	    ipv6cp_close(f->unit, "Interface configuration failed");
+	    return;
+	}
+#else
+	if (!sifup(f->unit)) {
+	    if (debug)
+		warn("sifup failed (IPV6)");
+	    ipv6cp_close(f->unit, "Interface configuration failed");
+	    return;
+	}
+#endif /* defined(SOL2) */
+
+#if defined(__linux__) || defined(SOL2) || (defined(SVR4) && (defined(SNI) || defined(__USLC__)))
+	if (!sif6addr(f->unit, go->ourid, ho->hisid)) {
+	    if (debug)
+		warn("sif6addr failed");
+	    ipv6cp_close(f->unit, "Interface configuration failed");
+	    return;
+	}
+#endif
 	sifnpmode(f->unit, PPP_IPV6, NPMODE_PASS);
 
 	notice("local  LL address %s", llv6_ntoa(go->ourid));
@@ -1309,14 +1340,16 @@ ipv6cp_down(f)
     } else {
 	sifnpmode(f->unit, PPP_IPV6, NPMODE_DROP);
 #if !defined(__linux__) && !(defined(SVR4) && (defined(SNI) || defined(__USLC)))
+#if defined(SOL2)
 	sif6down(f->unit);
+#else
+	sifdown(f->unit);
+#endif /* defined(SOL2) */
 #endif
 	ipv6cp_clear_addrs(f->unit, 
 			   ipv6cp_gotoptions[f->unit].ourid,
 			   ipv6cp_hisoptions[f->unit].hisid);
-#if defined(__linux__)
-	sif6down(f->unit);
-#elif defined(SVR4) && (defined(SNI) || defined(__USLC))
+#if defined(__linux__) || (defined(SVR4) && (defined(SNI) || defined(__USLC)))
 	sifdown(f->unit);
 #endif
     }

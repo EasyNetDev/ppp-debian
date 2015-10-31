@@ -77,7 +77,7 @@ rc_mksid (void)
   static unsigned short int cnt = 0;
   sprintf (buf, "%08lX%04X%02hX",
 	   (unsigned long int) time (NULL),
-	   (unsigned int) getpid () % 65535,
+	   (unsigned int) getpid (),
 	   cnt & 0xFF);
   cnt++;
   return buf;

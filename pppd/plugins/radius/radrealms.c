@@ -28,8 +28,7 @@ char pppd_version[] = VERSION;
 char radrealms_config[MAXPATHLEN] = "/etc/radiusclient/realms";
 
 static option_t Options[] = {
-    { "realms-config-file", o_string, &radrealms_config,
-      "Configuration file for RADIUS realms", OPT_STATIC, NULL, MAXPATHLEN },
+    { "realms-config-file", o_string, &radrealms_config },
     { NULL }
 };
 

@@ -61,14 +61,14 @@ HAVE_MULTILINK=y
 USE_TDB=y
 
 HAS_SHADOW=y
-USE_PAM=y
+#USE_PAM=y
 HAVE_INET6=y
 
 # Enable plugins
 PLUGIN=y
 
 # Enable Microsoft proprietary Callback Control Protocol
-CBCP=y
+#CBCP=y
 
 # Enable EAP SRP-SHA1 authentication (requires libsrp)
 #USE_SRP=y
@@ -83,7 +83,6 @@ INCLUDE_DIRS= -I../include
 COMPILE_FLAGS= -DHAVE_PATHS_H -DIPX_CHANGE -DHAVE_MMAP
 
 CFLAGS= $(COPTS) $(COMPILE_FLAGS) $(INCLUDE_DIRS) '-DDESTDIR="@DESTDIR@"'
-LDFLAGS=$(LDOPTS)
 
 ifdef CHAPMS
 CFLAGS   += -DCHAPMS=1
@@ -103,7 +102,7 @@ ifdef USE_SRP
 CFLAGS	+= -DUSE_SRP -DOPENSSL -I/usr/local/ssl/include
 LIBS	+= -lsrp -L/usr/local/ssl/lib -lcrypto
 TARGETS	+= srp-entry
-EXTRAINSTALL = $(INSTALL) -c -m 555 srp-entry $(BINDIR)/srp-entry
+EXTRAINSTALL = $(INSTALL) -s -c -m 555 srp-entry $(BINDIR)/srp-entry
 MANPAGES += srp-entry.8
 EXTRACLEAN += srp-entry.o
 NEEDDES=y
@@ -121,13 +120,9 @@ CFLAGS   += -DHAS_SHADOW
 #LIBS     += -lshadow $(LIBS)
 endif
 
-ifdef NO_CRYPT_HACK
-CFLAGS += -DNO_CRYPT_HACK
-else
 ifneq ($(wildcard /usr/include/crypt.h),)
 CFLAGS  += -DHAVE_CRYPT_H=1
 LIBS	+= -lcrypt
-endif
 endif
 
 ifdef USE_LIBUTIL
@@ -182,8 +177,10 @@ LIBS	+= -ldl
 endif
 
 ifdef FILTER
+ifneq ($(wildcard /usr/include/pcap-bpf.h),)
 LIBS    += -lpcap
 CFLAGS  += -DPPP_FILTER
+endif
 endif
 
 ifdef HAVE_INET6
@@ -211,13 +208,13 @@ all: $(TARGETS)
 install: pppd
 	mkdir -p $(BINDIR) $(MANDIR)
 	$(EXTRAINSTALL)
-	$(INSTALL) -c -m 555 pppd $(BINDIR)/pppd
+	$(INSTALL) -s -c -m 555 pppd $(BINDIR)/pppd
 	if chgrp pppusers $(BINDIR)/pppd 2>/dev/null; then \
 	  chmod o-rx,u+s $(BINDIR)/pppd; fi
 	$(INSTALL) -c -m 444 pppd.8 $(MANDIR)
 
 pppd: $(PPPDOBJS)
-	$(CC) $(LDFLAGS) -o pppd $(PPPDOBJS) $(LIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o pppd $(PPPDOBJS) $(LIBS)
 
 srp-entry:	srp-entry.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ srp-entry.c $(LIBS)

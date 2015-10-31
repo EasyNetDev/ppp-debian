@@ -150,12 +150,13 @@
 typedef struct ipv6cp_options {
     int neg_ifaceid;		/* Negotiate interface identifier? */
     int req_ifaceid;		/* Ask peer to send interface identifier? */
-    int accept_local;		/* accept peer's value for our iface id? */
-    int accept_remote;		/* accept peer's value for his iface id? */
+    int accept_local;		/* accept peer's value for iface id? */
     int opt_local;		/* ourtoken set by option */
     int opt_remote;		/* histoken set by option */
     int use_ip;			/* use IP as interface identifier */
+#if defined(SOL2) || defined(__linux__)
     int use_persistent;		/* use uniquely persistent value for address */
+#endif /* defined(SOL2) */
     int neg_vj;			/* Van Jacobson Compression? */
     u_short vj_protocol;	/* protocol value to use in VJ option */
     eui64_t ourid, hisid;	/* Interface identifiers */

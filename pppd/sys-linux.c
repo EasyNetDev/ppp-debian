@@ -205,10 +205,7 @@ static char loop_name[20];
 static unsigned char inbuf[512]; /* buffer for chars read from loopback */
 
 static int	if_is_up;	/* Interface has been marked up */
-static int	if6_is_up;	/* Interface has been marked up for IPv6, to help differentiate */
 static int	have_default_route;	/* Gateway for default route added */
-static struct rtentry old_def_rt;       /* Old default route */
-static int       default_rt_repl_rest;  /* replace and restore old default rt */
 static u_int32_t proxy_arp_addr;	/* Addr for proxy arp entry added */
 static char proxy_arp_dev[16];		/* Device for proxy arp entry */
 static u_int32_t our_old_addr;		/* for detecting address changes */
@@ -242,7 +239,6 @@ static void decode_version (char *buf, int *version, int *mod, int *patch);
 static int set_kdebugflag(int level);
 static int ppp_registered(void);
 static int make_ppp_unit(void);
-static int setifstate (int u, int state);
 
 extern u_char	inpacket_buf[];	/* borrowed from main.c */
 
@@ -342,9 +338,6 @@ void sys_cleanup(void)
 	if_is_up = 0;
 	sifdown(0);
     }
-    if (if6_is_up)
-	sif6down(0);
-
 /*
  * Delete any routes through the device.
  */
@@ -459,13 +452,6 @@ int generic_establish_ppp (int fd)
 
     if (new_style_driver) {
 	int flags;
-
-        /* if a ppp_fd is already open, close it first */
-        if(ppp_fd > 0) {
-          close(ppp_fd);
-          remove_fd(ppp_fd);
-          ppp_fd = -1;
-        }
 
 	/* Open an instance of /dev/ppp and connect the channel to it */
 	if (ioctl(fd, PPPIOCGCHAN, &chindex) == -1) {
@@ -650,21 +636,6 @@ static int make_ppp_unit()
 	}
 	if (x < 0)
 		error("Couldn't create new ppp unit: %m");
-
-	if (x == 0 && req_ifname[0] != '\0') {
-		struct ifreq ifr;
-		char t[MAXIFNAMELEN];
-		memset(&ifr, 0, sizeof(struct ifreq));
-		slprintf(t, sizeof(t), "%s%d", PPP_DRV_NAME, ifunit);
-		strncpy(ifr.ifr_name, t, IF_NAMESIZE);
-		strncpy(ifr.ifr_newname, req_ifname, IF_NAMESIZE);
-		x = ioctl(sock_fd, SIOCSIFNAME, &ifr);
-		if (x < 0)
-		    error("Couldn't rename interface %s to %s: %m", t, req_ifname);
-		else
-		    info("Renamed interface %s to %s", t, req_ifname);
-	}
-
 	return x;
 }
 
@@ -1566,9 +1537,6 @@ static int read_route_table(struct rtentry *rt)
 	p = NULL;
     }
 
-    SET_SA_FAMILY (rt->rt_dst,     AF_INET);
-    SET_SA_FAMILY (rt->rt_gateway, AF_INET);
-
     SIN_ADDR(rt->rt_dst) = strtoul(cols[route_dest_col], NULL, 16);
     SIN_ADDR(rt->rt_gateway) = strtoul(cols[route_gw_col], NULL, 16);
     SIN_ADDR(rt->rt_genmask) = strtoul(cols[route_mask_col], NULL, 16);
@@ -1638,53 +1606,22 @@ int have_route_to(u_int32_t addr)
 /********************************************************************
  *
  * sifdefaultroute - assign a default route through the address given.
- *
- * If the global default_rt_repl_rest flag is set, then this function
- * already replaced the original system defaultroute with some other
- * route and it should just replace the current defaultroute with
- * another one, without saving the current route. Use: demand mode,
- * when pppd sets first a defaultroute it it's temporary ppp0 addresses
- * and then changes the temporary addresses to the addresses for the real
- * ppp connection when it has come up.
  */
 
-int sifdefaultroute (int unit, u_int32_t ouraddr, u_int32_t gateway, bool replace)
+int sifdefaultroute (int unit, u_int32_t ouraddr, u_int32_t gateway)
 {
-    struct rtentry rt, tmp_rt;
-    struct rtentry *del_rt = NULL;
+    struct rtentry rt;
 
-    if (default_rt_repl_rest) {
-       /* We have already reclaced the original defaultroute, if we
-         * are called again, we will delete the current default route
-         * and set the new default route in this function.
-         * - this is normally only the case the doing demand: */
-       if (defaultroute_exists( &tmp_rt ))
-               del_rt = &tmp_rt;
-    } else if ( defaultroute_exists( &old_def_rt                ) &&
-                            strcmp(  old_def_rt.rt_dev, ifname ) != 0) {
-       /* We did not yet replace an existing default route, let's
-        * check if we should save and replace a default route:
-         */
-       u_int32_t old_gateway = SIN_ADDR(old_def_rt.rt_gateway);
-
-       if (old_gateway != gateway) {
-           if (!replace) {
-               error("not replacing default route to %s [%I]",
-                       old_def_rt.rt_dev, old_gateway);
-               return 0;
-           } else {
-               // we need to copy rt_dev because we need it permanent too:
-               char * tmp_dev = malloc(strlen(old_def_rt.rt_dev)+1);
-               strcpy(tmp_dev, old_def_rt.rt_dev);
-               old_def_rt.rt_dev = tmp_dev;
-
-               notice("replacing old default route to %s [%I]",
-                       old_def_rt.rt_dev, old_gateway);
-               default_rt_repl_rest = 1;
-               del_rt = &old_def_rt;
-           }
-       }
+    if (defaultroute_exists(&rt) && strcmp(rt.rt_dev, ifname) != 0) {
+	if (rt.rt_flags & RTF_GATEWAY)
+	    error("not replacing existing default route via %I",
+		  SIN_ADDR(rt.rt_gateway));
+	else
+	    error("not replacing existing default route through %s",
+		  rt.rt_dev);
+	return 0;
     }
+
     memset (&rt, 0, sizeof (rt));
     SET_SA_FAMILY (rt.rt_dst, AF_INET);
 
@@ -1701,12 +1638,6 @@ int sifdefaultroute (int unit, u_int32_t ouraddr, u_int32_t gateway, bool replac
 	    error("default route ioctl(SIOCADDRT): %m");
 	return 0;
     }
-    if (default_rt_repl_rest && del_rt)
-        if (ioctl(sock_fd, SIOCDELRT, del_rt) < 0) {
-	    if ( ! ok_error ( errno ))
-	        error("del old default route ioctl(SIOCDELRT): %m(%d)", errno);
-	    return 0;
-        }
 
     have_default_route = 1;
     return 1;
@@ -1741,16 +1672,6 @@ int cifdefaultroute (int unit, u_int32_t ouraddr, u_int32_t gateway)
 		error("default route ioctl(SIOCDELRT): %m");
 	    return 0;
 	}
-    }
-    if (default_rt_repl_rest) {
-	notice("restoring old default route to %s [%I]",
-			old_def_rt.rt_dev, SIN_ADDR(old_def_rt.rt_gateway));
-        if (ioctl(sock_fd, SIOCADDRT, &old_def_rt) < 0) {
-	    if ( ! ok_error ( errno ))
-	        error("restore default route ioctl(SIOCADDRT): %m(%d)", errno);
-	    return 0;
-        }
-        default_rt_repl_rest = 0;
     }
 
     return 1;
@@ -2331,73 +2252,6 @@ int sifvjcomp (int u, int vjcomp, int cidcomp, int maxcid)
 
 int sifup(int u)
 {
-    int ret;
-
-    if ((ret = setifstate(u, 1)))
-	if_is_up++;
-
-    return ret;
-}
-
-/********************************************************************
- *
- * sifdown - Disable the indicated protocol and config the interface
- *	     down if there are no remaining protocols.
- */
-
-int sifdown (int u)
-{
-    if (if_is_up && --if_is_up > 0)
-	return 1;
-
-#ifdef INET6
-    if (if6_is_up)
-	return 1;
-#endif /* INET6 */
-
-    return setifstate(u, 0);
-}
-
-#ifdef INET6
-/********************************************************************
- *
- * sif6up - Config the interface up for IPv6
- */
-
-int sif6up(int u)
-{
-    int ret;
-
-    if ((ret = setifstate(u, 1)))
-	if6_is_up = 1;
-
-    return ret;
-}
-
-/********************************************************************
- *
- * sif6down - Disable the IPv6CP protocol and config the interface
- *	      down if there are no remaining protocols.
- */
-
-int sif6down (int u)
-{
-    if6_is_up = 0;
-
-    if (if_is_up)
-	return 1;
-
-    return setifstate(u, 0);
-}
-#endif /* INET6 */
-
-/********************************************************************
- *
- * setifstate - Config the interface up or down
- */
-
-static int setifstate (int u, int state)
-{
     struct ifreq ifr;
 
     memset (&ifr, '\0', sizeof (ifr));
@@ -2408,10 +2262,39 @@ static int setifstate (int u, int state)
 	return 0;
     }
 
-    if (state)
-	ifr.ifr_flags |= IFF_UP;
-    else
-	ifr.ifr_flags &= ~IFF_UP;
+    ifr.ifr_flags |= (IFF_UP | IFF_POINTOPOINT);
+    if (ioctl(sock_fd, SIOCSIFFLAGS, (caddr_t) &ifr) < 0) {
+	if (! ok_error (errno))
+	    error("ioctl(SIOCSIFFLAGS): %m (line %d)", __LINE__);
+	return 0;
+    }
+    if_is_up++;
+
+    return 1;
+}
+
+/********************************************************************
+ *
+ * sifdown - Disable the indicated protocol and config the interface
+ *	     down if there are no remaining protocols.
+ */
+
+int sifdown (int u)
+{
+    struct ifreq ifr;
+
+    if (if_is_up && --if_is_up > 0)
+	return 1;
+
+    memset (&ifr, '\0', sizeof (ifr));
+    strlcpy(ifr.ifr_name, ifname, sizeof (ifr.ifr_name));
+    if (ioctl(sock_fd, SIOCGIFFLAGS, (caddr_t) &ifr) < 0) {
+	if (! ok_error (errno))
+	    error("ioctl (SIOCGIFFLAGS): %m (line %d)", __LINE__);
+	return 0;
+    }
+
+    ifr.ifr_flags &= ~IFF_UP;
     ifr.ifr_flags |= IFF_POINTOPOINT;
     if (ioctl(sock_fd, SIOCSIFFLAGS, (caddr_t) &ifr) < 0) {
 	if (! ok_error (errno))
