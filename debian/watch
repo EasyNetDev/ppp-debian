@@ -1,0 +1,3 @@
+version=3
+opts=pasv,pgpsigurlmangle=s/$/.asc/ \
+ftp://ftp.samba.org/pub/ppp/ppp-([0-9\.]+)\.tar\.gz
